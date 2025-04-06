@@ -1,0 +1,12 @@
+Flask
+Flask-SQLAlchemy
+Flask-JWT-Extended
+Flask-SocketIO
+Flask-Migrate
+Flask-Limiter
+Flasgger
+PyMySQL
+cryptography
+bcrypt
+redis
+python-dotenv
