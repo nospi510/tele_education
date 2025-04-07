@@ -21,15 +21,7 @@ def create_app():
     socketio.init_app(app)
     migrate.init_app(app, db)
 
-    # Configuration pour gérer un dictionnaire comme identité JWT
-    @jwt.user_identity_loader
-    def user_identity_lookup(user):
-        return user  # Permet de passer un dictionnaire comme identity
 
-    @jwt.user_lookup_loader
-    def user_lookup_callback(_jwt_header, jwt_data):
-        identity = jwt_data["sub"]
-        return User.query.get(identity["id"])  # Charge l'utilisateur à partir de l'ID dans le dictionnaire
 
     # Configuration de Flasgger avec support Bearer Token
     app.config['SWAGGER'] = {

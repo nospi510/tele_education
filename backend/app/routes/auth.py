@@ -1,11 +1,12 @@
 from flask import Blueprint, request, jsonify
 from app import db
 from app.models.user import User, UserRole
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, get_jwt
 from flasgger import swag_from
 import bcrypt
 
 auth_bp = Blueprint("auth", __name__)
+
 
 @auth_bp.route("/register", methods=["POST"])
 @swag_from({
@@ -87,8 +88,11 @@ def login():
     if not user or not bcrypt.checkpw(data["password"].encode("utf-8"), user.password.encode("utf-8")):
         return jsonify({"message": "Invalid credentials"}), 401
     
-    # Créer un token avec un dictionnaire comme identité
-    access_token = create_access_token(identity={"id": user.id, "role": user.role.value})
+    # Utiliser l’ID comme sub, et ajouter le rôle comme claim supplémentaire
+    access_token = create_access_token(
+        identity=str(user.id),
+        additional_claims={"role": user.role.value}
+    )
     return jsonify({"access_token": access_token}), 200
 
 @auth_bp.route("/profile", methods=["GET"])
@@ -112,10 +116,11 @@ def login():
     }
 })
 def get_profile():
-    current_user = get_jwt_identity()
-    user = User.query.get(current_user["id"])
+    current_user_id = get_jwt_identity()  # Renvoie l’ID comme chaîne
+    claims = get_jwt()  # Récupère les claims supplémentaires
+    user = User.query.get(int(current_user_id))
     return jsonify({
         "email": user.email,
         "name": user.name,
-        "role": user.role.value
+        "role": claims["role"]  # Récupère le rôle depuis les claims
     }), 200
