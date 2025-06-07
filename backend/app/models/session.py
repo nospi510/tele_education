@@ -9,7 +9,7 @@ class SessionStatus(enum.Enum):
 
 class Session(db.Model):
     __tablename__ = "sessions"
-    
+
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
@@ -17,6 +17,7 @@ class Session(db.Model):
     status = db.Column(db.Enum(SessionStatus), default=SessionStatus.ACTIVE, nullable=False)
     start_time = db.Column(db.DateTime, default=datetime.utcnow)
     end_time = db.Column(db.DateTime, nullable=True)
+    stream_url = db.Column(db.String(255), nullable=True)  # URL du flux M3U8
 
     # Relations
     hand_requests = db.relationship("HandRequest", backref="session", lazy=True)

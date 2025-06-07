@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Connexion{% endblock %}
+{% block content %}
+<div class="bg-white p-8 rounded shadow-md w-full max-w-md">
+    <h1 class="text-2xl font-bold mb-6 text-center">Connexion</h1>
+    <div class="mb-4">
+        <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+        <input id="email" type="email" class="border p-2 w-full rounded" placeholder="user@example.com">
+    </div>
+    <div class="mb-6">
+        <label for="password" class="block text-sm font-medium text-gray-700">Mot de passe</label>
+        <input id="password" type="password" class="border p-2 w-full rounded" placeholder="Mot de passe">
+    </div>
+    <button id="login-btn" class="bg-blue-500 text-white px-4 py-2 rounded w-full">Se connecter</button>
+    <p id="error-message" class="text-red-500 text-sm mt-2 hidden"></p>
+</div>
+
+<script>
+    document.getElementById("login-btn").addEventListener("click", async () => {
+        const email = document.getElementById("email").value;
+        const password = document.getElementById("password").value;
+        const errorMessage = document.getElementById("error-message");
+
+        try {
+            const response = await fetch("/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, password })
+            });
+            const data = await response.json();
+            if (data.access_token) {
+                localStorage.setItem("jwt_token", data.access_token);
+                const profileResponse = await fetch("/auth/profile", {
+                    headers: { "Authorization": "Bearer " + data.access_token }
+                });
+                if (profileResponse.status === 401) {
+                    localStorage.removeItem("jwt_token");
+                    window.location.href = "/auth/login";
+                    return;
+                }
+                const profile = await profileResponse.json();
+                if (profile.role === "professor") {
+                    window.location.href = `/sessions/create`;
+                } else {
+                    window.location.href = `/sessions/active`;
+                }
+            } else {
+                errorMessage.textContent = data.message || "Erreur de connexion";
+                errorMessage.classList.remove("hidden");
+            }
+        } catch (error) {
+            errorMessage.textContent = "Erreur : " + error.message;
+            errorMessage.classList.remove("hidden");
+            console.error(error);
+        }
+    });
+</script>
+{% endblock %}

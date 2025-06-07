@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}Interface Professeur{% endblock %}
+{% block content %}
+<div class="bg-white p-8 rounded shadow-md w-full">
+    <h1 class="text-2xl font-bold mb-4">Interface Professeur - Session {{ session_id }}</h1>
+    <div class="mb-4">
+        <video id="local-video" autoplay muted class="w-1/2 mb-4"></video>
+        <button id="start-stream" class="bg-blue-500 text-white px-4 py-2 rounded">Démarrer le streaming</button>
+        <button id="stop-stream" class="bg-red-500 text-white px-4 py-2 rounded hidden">Arrêter le streaming</button>
+    </div>
+    <div class="mb-4">
+        <h2 class="text-xl font-semibold">Créer un quiz</h2>
+        <input id="quiz-question" type="text" placeholder="Question" class="border p-2 w-full mb-2">
+        <input id="quiz-options" type="text" placeholder="Options (séparées par des virgules)" class="border p-2 w-full mb-2">
+        <input id="quiz-correct" type="text" placeholder="Réponse correcte" class="border p-2 w-full mb-2">
+        <button id="create-quiz" class="bg-green-500 text-white px-4 py-2 rounded">Créer le quiz</button>
+    </div>
+    <div id="quiz-responses" class="mb-4"></div>
+    <div id="comments" class="mb-4">
+        <h2 class="text-xl font-semibold">Commentaires</h2>
+        <ul id="comment-list" class="list-disc pl-5"></ul>
+        <input id="comment-input" type="text" placeholder="Ajouter un commentaire" class="border p-2 w-full mb-2">
+        <button id="post-comment" class="bg-blue-500 text-white px-4 py-2 rounded">Envoyer</button>
+    </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+<script>
+    const token = localStorage.getItem("jwt_token");
+    const sessionId = "{{ session_id }}";
+    let localStream = null;
+    let peerConnection = null;
+
+    const socket = io('http://localhost:5001', {
+        auth: { token: `Bearer ${token}` },
+        transports: ['websocket', 'polling']
+    });
+
+    socket.on("connect", () => {
+        console.log("Socket.IO connecté");
+        socket.emit("join_session", { session_id: sessionId });
+    });
+
+    socket.on("connect_error", (error) => {
+        console.error("Erreur Socket.IO :", error.message);
+        if (error.message.includes("401") || error.message.includes("Unauthorized") || error.message.includes("Invalid token")) {
+            localStorage.removeItem("jwt_token");
+            window.location.href = "/auth/login";
+        } else {
+            alert("Erreur de connexion au serveur. Veuillez réessayer.");
+        }
+    });
+
+    socket.on("stream_started", (data) => {
+        document.getElementById("start-stream").classList.add("hidden");
+        document.getElementById("stop-stream").classList.remove("hidden");
+        console.log(`Streaming démarré. WebRTC URL: ${data.webrtc_url}, M3U8: ${data.m3u8_url}`);
+    });
+
+    socket.on("stream_stopped", () => {
+        document.getElementById("start-stream").classList.remove("hidden");
+        document.getElementById("stop-stream").classList.add("hidden");
+        stopLocalStream();
+    });
+
+    socket.on("new_quiz", (data) => {
+        alert(`Nouveau quiz: ${data.question}`);
+    });
+
+    socket.on("quiz_response", (data) => {
+        const responsesDiv = document.getElementById("quiz-responses");
+        responsesDiv.innerHTML += `<p>${data.user_name}: ${data.answer} (${data.submitted_at})</p>`;
+    });
+
+    socket.on("new_comment", (data) => {
+        const commentList = document.getElementById("comment-list");
+        const li = document.createElement("li");
+        li.textContent = `${data.user_name}: ${data.content} (${data.created_at})`;
+        commentList.appendChild(li);
+    });
+
+    async function startLocalStream() {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+            });
+            document.getElementById("local-video").srcObject = localStream;
+        } catch (error) {
+            alert("Erreur d'accès à la caméra/microphone : " + error.message);
+            console.error(error);
+            throw error;
+        }
+    }
+
+    async function startWebRTC(sessionId) {
+        try {
+            peerConnection = new RTCPeerConnection({
+                iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+            });
+
+            localStream.getTracks().forEach(track => {
+                peerConnection.addTrack(track, localStream);
+            });
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+
+            const response = await fetch('http://localhost:1985/rtc/v1/publish/', {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    sdp: offer.sdp,
+                    streamurl: `/live/session_${sessionId}`
+                })
+            });
+
+            if (!response.ok) {
+                if (response.status === 401) {
+                    localStorage.removeItem("jwt_token");
+                    window.location.href = "/auth/login";
+                }
+                const errorText = await response.text();
+                throw new Error(`Erreur SRS: ${response.status} ${errorText}`);
+            }
+
+            const data = await response.json();
+            if (data.code !== 0) {
+                throw new Error(`Erreur publication WebRTC: ${data.error || 'Erreur inconnue'}`);
+            }
+
+            await peerConnection.setRemoteDescription({
+                type: "answer",
+                sdp: data.sdp
+            });
+
+            peerConnection.onicecandidate = (event) => {
+                console.log("ICE candidate:", event.candidate || "Fin des candidats");
+            };
+
+            peerConnection.onconnectionstatechange = () => {
+                console.log("Connection state:", peerConnection.connectionState);
+                if (peerConnection.connectionState === "failed") {
+                    alert("Échec de la connexion WebRTC");
+                    stopLocalStream();
+                }
+            };
+        } catch (error) {
+            alert("Erreur WebRTC : " + error.message);
+            console.error(error);
+            stopLocalStream();
+        }
+    }
+
+    function stopLocalStream() {
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+            document.getElementById("local-video").srcObject = null;
+            localStream = null;
+        }
+        if (peerConnection) {
+            peerConnection.close();
+            peerConnection = null;
+        }
+    }
+
+    document.getElementById("start-stream").addEventListener("click", async () => {
+        if (!token) {
+            window.location.href = "/auth/login";
+            return;
+        }
+        try {
+            await startLocalStream();
+            const response = await fetch(`/sessions/${sessionId}/start`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`
+                }
+            });
+            if (response.status === 401) {
+                localStorage.removeItem("jwt_token");
+                window.location.href = "/auth/login";
+                return;
+            }
+            const data = await response.json();
+            if (data.message) {
+                await startWebRTC(sessionId);
+                alert(data.message);
+            } else {
+                alert("Erreur : Données de streaming manquantes");
+            }
+        } catch (error) {
+            alert("Erreur lors du démarrage : " + error.message);
+            console.error(error);
+        }
+    });
+
+    document.getElementById("stop-stream").addEventListener("click", async () => {
+        if (!token) {
+            window.location.href = "/auth/login";
+            return;
+        }
+        try {
+            const response = await fetch(`/sessions/${sessionId}/stop`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`
+                }
+            });
+            if (response.status === 401) {
+                localStorage.removeItem("jwt_token");
+                window.location.href = "/auth/login";
+                return;
+            }
+            const data = await response.json();
+            stopLocalStream();
+            alert(data.message);
+        } catch (error) {
+            alert("Erreur : " + error.message);
+            console.error(error);
+        }
+    });
+
+    document.getElementById("create-quiz").addEventListener("click", async () => {
+        if (!token) {
+            window.location.href = "/auth/login";
+            return;
+        }
+        const question = document.getElementById("quiz-question").value;
+        const options = document.getElementById("quiz-options").value.split(",");
+        const correctAnswer = document.getElementById("quiz-correct").value;
+
+        try {
+            const response = await fetch(`/quiz/${sessionId}/create`, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ question, options, correct_answer: correctAnswer })
+            });
+            if (response.status === 401) {
+                localStorage.removeItem("jwt_token");
+                window.location.href = "/auth/login";
+                return;
+            }
+            const data = await response.json();
+            alert(data.message);
+            document.getElementById("quiz-question").value = "";
+            document.getElementById("quiz-options").value = "";
+            document.getElementById("quiz-correct").value = "";
+        } catch (error) {
+            alert("Erreur : " + error.message);
+            console.error(error);
+        }
+    });
+
+    document.getElementById("post-comment").addEventListener("click", () => {
+        const content = document.getElementById("comment-input").value;
+        socket.emit("post_comment", { session_id: sessionId, content });
+        document.getElementById("comment-input").value = "";
+    });
+</script>
+{% endblock %}

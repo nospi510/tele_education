@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Sélectionner une Session{% endblock %}
+{% block content %}
+<div class="bg-white p-8 rounded shadow-md w-full">
+    <h1 class="text-2xl font-bold mb-4">Sessions Actives</h1>
+    {% if sessions %}
+        <ul class="list-disc pl-5">
+            {% for session in sessions %}
+                <li>
+                    <a href="/sessions/viewer?session_id={{ session.id }}" class="text-blue-500 hover:underline">
+                        {{ session.title }} (par {{ session.professor.name }})
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+    {% else %}
+        <p class="text-gray-600">Aucune session active pour le moment.</p>
+    {% endif %}
+</div>
+{% endblock %}

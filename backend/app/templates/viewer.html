@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Interface Spectateur{% endblock %}
+{% block content %}
+<div class="bg-white p-8 rounded shadow-md w-full">
+    <h1 class="text-2xl font-bold mb-4">Interface Spectateur - Session {{ session_id }}</h1>
+    <video id="stream-player" controls class="w-full mb-4"></video>
+    <div id="quiz-section" class="mb-4 hidden">
+        <h2 class="text-xl font-semibold">Quiz</h2>
+        <p id="quiz-question"></p>
+        <div id="quiz-options"></div>
+        <button id="submit-answer" class="bg-green-500 text-white px-4 py-2 rounded">Soumettre</button>
+    </div>
+    <div id="comments" class="mb-4">
+        <h2 class="text-xl font-semibold">Commentaires</h2>
+        <ul id="comment-list" class="list-disc pl-5"></ul>
+        <input id="comment-input" type="text" placeholder="Ajouter un commentaire" class="border p-2 w-full mb-2">
+        <button id="post-comment" class="bg-blue-500 text-white px-4 py-2 rounded">Envoyer</button>
+    </div>
+</div>
+
+<script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+    const token = localStorage.getItem("jwt_token");
+    const sessionId = "{{ session_id }}";
+    const video = document.getElementById("stream-player");
+
+    if (!token) {
+        window.location.href = "/auth/login";
+    }
+
+    const socket = io('http://localhost:5001', {
+        auth: { token: `Bearer ${token}` },
+        transports: ['websocket', 'polling']
+    });
+
+    socket.on("connect", () => {
+        console.log("Socket.IO connecté");
+        socket.emit("join_session", { session_id: sessionId });
+    });
+
+    socket.on("connect_error", (error) => {
+        console.error("Erreur Socket.IO :", error.message);
+        if (error.message.includes("Missing token") || error.message.includes("Invalid token")) {
+            localStorage.removeItem("jwt_token");
+            window.location.href = "/auth/login";
+        } else {
+            alert("Erreur de connexion au serveur. Veuillez réessayer.");
+        }
+    });
+
+    socket.on("session_joined", (data) => {
+        if (data.m3u8_url && Hls.isSupported()) {
+            console.log("Chargement du flux HLS :", data.m3u8_url);
+            const hls = new Hls();
+            hls.loadSource(data.m3u8_url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(err => console.error("Erreur lecture HLS :", err));
+            });
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error("Erreur HLS :", data);
+                if (data.fatal) {
+                    alert("Erreur de chargement du flux vidéo.");
+                    hls.destroy();
+                }
+            });
+        } else if (!Hls.isSupported()) {
+            alert("HLS non supporté par ce navigateur. Essayez Chrome, Firefox ou Safari.");
+        }
+    });
+
+    socket.on("stream_started", (data) => {
+        if (data.m3u8_url && Hls.isSupported()) {
+            console.log("Flux démarré, chargement HLS :", data.m3u8_url);
+            const hls = new Hls();
+            hls.loadSource(data.m3u8_url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(err => console.error("Erreur lecture HLS :", err));
+            });
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error("Erreur HLS :", data);
+                if (data.fatal) {
+                    alert("Erreur de chargement du flux vidéo.");
+                    hls.destroy();
+                }
+            });
+        } else if (!Hls.isSupported()) {
+            alert("HLS non supporté par ce navigateur. Essayez Chrome, Firefox ou Safari.");
+        }
+    });
+
+    socket.on("stream_stopped", () => {
+        console.log("Flux arrêté");
+        video.pause();
+        video.src = "";
+    });
+
+    socket.on("new_quiz", (data) => {
+        console.log("Nouveau quiz reçu :", data);
+        const quizSection = document.getElementById("quiz-section");
+        const quizQuestion = document.getElementById("quiz-question");
+        const quizOptions = document.getElementById("quiz-options");
+        quizSection.classList.remove("hidden");
+        quizQuestion.textContent = data.question;
+        quizOptions.innerHTML = "";
+        data.options.forEach((option, index) => {
+            const button = document.createElement("button");
+            button.textContent = option;
+            button.classList.add("border", "p-2", "m-1", "bg-gray-200");
+            button.onclick = async () => {
+                try {
+                    const response = await fetch(`/quiz/${sessionId}/${data.quiz_id}/respond`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ answer: option })
+                    });
+                    if (response.status === 401) {
+                        localStorage.removeItem("jwt_token");
+                        window.location.href = "/auth/login";
+                        return;
+                    }
+                    const responseData = await response.json();
+                    alert(responseData.message);
+                    quizSection.classList.add("hidden");
+                } catch (error) {
+                    alert("Erreur : " + error.message);
+                    console.error(error);
+                }
+            };
+            quizOptions.appendChild(button);
+        });
+    });
+
+    socket.on("new_comment", (data) => {
+        console.log("Nouveau commentaire reçu :", data);
+        const commentList = document.getElementById("comment-list");
+        const li = document.createElement("li");
+        li.textContent = `${data.user_name}: ${data.content} (${data.created_at})`;
+        commentList.appendChild(li);
+    });
+
+    document.getElementById("post-comment").addEventListener("click", () => {
+        const content = document.getElementById("comment-input").value;
+        if (!content.trim()) {
+            alert("Veuillez entrer un commentaire.");
+            return;
+        }
+        socket.emit("post_comment", { session_id: sessionId, content });
+        document.getElementById("comment-input").value = "";
+    });
+</script>
+{% endblock %}
