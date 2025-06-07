@@ -16,8 +16,9 @@ Navigateurs : Chrome, Firefox, ou Safari (pour HLS)
 - Installation
 
     Cloner le dépôt :
-    git clone <url-du-dépôt>
+    git clone https://github.com/nospi510/tele_education.git
     cd tele_education
+    git checkout api
 
 
 - Configurer l'environnement virtuel :
