@@ -10,3 +10,4 @@ cryptography
 bcrypt
 redis
 python-dotenv
+eventlet
