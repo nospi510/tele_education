@@ -212,11 +212,11 @@ tele_education/
 ├── frontend/
 │   └── (interface web utilisateur, si activée)
 ├── README.md
-└── .env (à ne pas versionner !)
+└── .env
 ```
 
 ---
 
 ## 👨‍💻 Auteur
 
-Développé par **Nick Alix** – [nick@visiotech.me](https://visiotech.me)
+Développé par **Nick Alix** – [visiotech.me](https://visiotech.me)
