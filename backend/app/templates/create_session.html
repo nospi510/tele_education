@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Créer une Session{% endblock %}
+{% block content %}
+<div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md mx-auto mt-12">
+    <h1 class="text-2xl font-bold mb-6 text-center text-green-800">Créer une Session</h1>
+    <form id="create-session-form">
+        <div class="mb-4">
+            <label for="title" class="block text-sm font-medium text-gray-700">Titre</label>
+            <input id="title" type="text" class="mt-1 border border-gray-300 p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors duration-200" placeholder="Titre de la session">
+        </div>
+        <div class="mb-6">
+            <label for="description" class="block text-sm font-medium text-gray-700">Description</label>
+            <textarea id="description" class="mt-1 border border-gray-300 p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors duration-200" placeholder="Description de la session" rows="4"></textarea>
+        </div>
+        <button id="create-session-btn" type="button" class="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg w-full font-medium transition-all duration-200 transform hover:-translate-y-1">Créer la session</button>
+        <p id="error-message" class="text-red-600 text-sm mt-3 text-center hidden"></p>
+    </form>
+    {% if existing_sessions %}
+        <h2 class="text-xl font-semibold mt-8 mb-4 text-green-800">Sessions existantes</h2>
+        <ul class="list-disc pl-5 space-y-2">
+            {% for session in existing_sessions %}
+                <li>
+                    <a href="/sessions/professor?session_id={{ session.id }}" class="text-amber-600 hover:text-amber-700 font-medium hover:underline transition-colors duration-200">
+                        {{ session.title }} (Créée le {{ session.start_time.strftime('%d/%m/%Y %H:%M') }})
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+</div>
+
+<script>
+    document.getElementById("create-session-btn").addEventListener("click", async (event) => {
+        event.preventDefault(); // Empêche le rechargement de la page
+        const token = localStorage.getItem("jwt_token");
+        const errorMessage = document.getElementById("error-message");
+
+        if (!token) {
+            console.log("Aucun token trouvé, redirection vers login");
+            window.location.href = "/auth/login";
+            return;
+        }
+
+        const title = document.getElementById("title").value.trim();
+        const description = document.getElementById("description").value.trim();
+
+        if (!title) {
+            errorMessage.textContent = "Le titre est requis";
+            errorMessage.classList.remove("hidden");
+            return;
+        }
+
+        try {
+            console.log("Envoi de la requête POST /sessions avec token :", token);
+            const response = await fetch("/sessions", {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${token}`,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ title, description })
+            });
+
+            console.log("Réponse reçue :", response.status, response.statusText);
+
+            if (response.status === 401) {
+                console.log("Token invalide, suppression et redirection");
+                localStorage.removeItem("jwt_token");
+                window.location.href = "/auth/login";
+                return;
+            }
+
+            const data = await response.json();
+            console.log("Données reçues :", data);
+
+            if (response.ok && data.id) {
+                console.log("Session créée, redirection vers /sessions/professor?session_id=", data.id);
+                window.location.href = `/sessions/professor?session_id=${data.id}`;
+            } else {
+                errorMessage.textContent = data.message || "Erreur lors de la création";
+                errorMessage.classList.remove("hidden");
+            }
+        } catch (error) {
+            console.error("Erreur fetch :", error);
+            errorMessage.textContent = "Erreur : " + error.message;
+            errorMessage.classList.remove("hidden");
+        }
+    });
+</script>
+{% endblock %}

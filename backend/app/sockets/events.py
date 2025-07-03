@@ -1,19 +1,18 @@
 from datetime import datetime
 from flask_socketio import SocketIO, emit, join_room, leave_room
-from app import socketio,db
+from app import socketio, db
 from app.models.user import User, UserRole
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.models.session import Session, SessionStatus
 from app.models.hand_request import HandRequest, HandStatus
 from app.models.comment import Comment
 
-
 @socketio.on("connect")
 @jwt_required()
 def handle_connect():
     """Gérer la connexion d’un client WebSocket."""
     current_user = get_jwt_identity()
-    emit("connection_response", {"message": f"User {current_user['id']} connected"})
+    emit("connection_response", {"message": f"User {current_user} connected"})
 
 @socketio.on("join_session")
 @jwt_required()
@@ -21,9 +20,12 @@ def join_session(data):
     """Rejoindre une session pour recevoir des mises à jour en temps réel."""
     session_id = data.get("session_id")
     session = Session.query.get_or_404(session_id)
-    
+
     join_room(str(session_id))
-    emit("session_joined", {"message": f"Joined session {session_id}"}, room=str(session_id))
+    emit("session_joined", {
+        "message": f"Joined session {session_id}",
+        "stream_url": session.stream_url
+    }, to=request.sid)
 
 @socketio.on("leave_session")
 @jwt_required()
@@ -40,11 +42,11 @@ def handle_post_comment(data):
     session_id = data.get("session_id")
     content = data.get("content")
     current_user = get_jwt_identity()
-    user = User.query.get(current_user["id"])
+    user = User.query.get(int(current_user))
     session = Session.query.get_or_404(session_id)
 
     if session.status != SessionStatus.ACTIVE:
-        emit("error", {"message": "Session is not active"})
+        emit("error", {"message": "Session non active"})
         return
 
     comment = Comment(session_id=session_id, user_id=user.id, content=content)
@@ -64,11 +66,11 @@ def handle_raise_hand(data):
     """Émettre une demande de main en temps réel au professeur."""
     session_id = data.get("session_id")
     current_user = get_jwt_identity()
-    user = User.query.get(current_user["id"])
+    user = User.query.get(int(current_user))
     session = Session.query.get_or_404(session_id)
 
     if user.role == UserRole.PROFESSOR or session.status != SessionStatus.ACTIVE:
-        emit("error", {"message": "Invalid request"})
+        emit("error", {"message": "Requête invalide"})
         return
 
     hand_request = HandRequest(session_id=session_id, user_id=user.id, status=HandStatus.PENDING)
@@ -91,23 +93,21 @@ def handle_grant_hand(data):
     current_user = get_jwt_identity()
     session = Session.query.get_or_404(session_id)
 
-    if session.professor_id != current_user["id"]:
-        emit("error", {"message": "Only the professor can grant the hand"})
+    if session.professor_id != int(current_user):
+        emit("error", {"message": "Seul le professeur peut accorder la main"})
         return
 
     hand_request = HandRequest.query.get_or_404(request_id)
     if hand_request.session_id != session_id or hand_request.status != HandStatus.PENDING:
-        emit("error", {"message": "Invalid request"})
+        emit("error", {"message": "Requête invalide"})
         return
 
-    # Révoquer toute main existante
     current_granted = HandRequest.query.filter_by(session_id=session_id, status=HandStatus.GRANTED).first()
     if current_granted:
         current_granted.status = HandStatus.REVOKED
         db.session.commit()
-        emit("stream_switch", {"user_id": session.professor_id, "message": "Reverting to professor stream"}, room=str(session_id))
+        emit("stream_switch", {"user_id": session.professor_id, "message": "Retour au flux du professeur"}, room=str(session_id))
 
-    # Accorder la main
     hand_request.status = HandStatus.GRANTED
     hand_request.granted_at = datetime.utcnow()
     db.session.commit()
@@ -119,7 +119,7 @@ def handle_grant_hand(data):
     }, room=str(session_id))
     emit("stream_switch", {
         "user_id": hand_request.user_id,
-        "message": "Switching to viewer stream"
+        "message": "Basculement vers le flux du spectateur"
     }, room=str(session_id))
 
 @socketio.on("revoke_hand")
@@ -131,13 +131,13 @@ def handle_revoke_hand(data):
     current_user = get_jwt_identity()
     session = Session.query.get_or_404(session_id)
 
-    if session.professor_id != current_user["id"]:
-        emit("error", {"message": "Only the professor can revoke the hand"})
+    if session.professor_id != int(current_user):
+        emit("error", {"message": "Seul le professeur peut révoquer la main"})
         return
 
     hand_request = HandRequest.query.get_or_404(request_id)
     if hand_request.session_id != session_id or hand_request.status != HandStatus.GRANTED:
-        emit("error", {"message": "Invalid request"})
+        emit("error", {"message": "Requête invalide"})
         return
 
     hand_request.status = HandStatus.REVOKED
@@ -150,7 +150,7 @@ def handle_revoke_hand(data):
     }, room=str(session_id))
     emit("stream_switch", {
         "user_id": session.professor_id,
-        "message": "Switching back to professor stream"
+        "message": "Retour au flux du professeur"
     }, room=str(session_id))
 
 @socketio.on("end_session")
@@ -161,16 +161,17 @@ def handle_end_session(data):
     current_user = get_jwt_identity()
     session = Session.query.get_or_404(session_id)
 
-    if session.professor_id != current_user["id"]:
-        emit("error", {"message": "Only the professor can end the session"})
+    if session.professor_id != int(current_user):
+        emit("error", {"message": "Seul le professeur peut terminer la session"})
         return
 
     session.status = SessionStatus.ENDED
     session.end_time = datetime.utcnow()
+    session.stream_url = None
     db.session.commit()
 
     emit("session_ended", {
         "session_id": session_id,
         "title": session.title
     }, room=str(session_id))
-    emit("stream_stop", {"message": "Session ended, streaming stopped"}, room=str(session_id))
+    emit("stream_stopped", {"message": "Session terminée, streaming arrêté"}, room=str(session_id))

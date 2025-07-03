@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Inscription{% endblock %}
+{% block content %}
+<div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md mx-auto mt-12">
+    <h1 class="text-2xl font-bold mb-6 text-center text-green-800">Inscription à TNT-Agricole</h1>
+    <form id="register-form">
+        <div class="mb-4">
+            <label for="email" class="block text-sm font-medium text-gray-700">Email</label>
+            <input id="email" type="email" class="mt-1 border border-gray-300 p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors duration-200" placeholder="user@example.com">
+        </div>
+        <div class="mb-4">
+            <label for="name" class="block text-sm font-medium text-gray-700">Nom</label>
+            <input id="name" type="text" class="mt-1 border border-gray-300 p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors duration-200" placeholder="John Doe">
+        </div>
+        <div class="mb-6">
+            <label for="password" class="block text-sm font-medium text-gray-700">Mot de passe</label>
+            <input id="password" type="password" class="mt-1 border border-gray-300 p-3 w-full rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors duration-200" placeholder="Mot de passe">
+        </div>
+        <button id="register-btn" type="button" class="bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg w-full font-medium transition-all duration-200 transform hover:-translate-y-1">S'inscrire</button>
+        <p id="error-message" class="text-red-600 text-sm mt-3 text-center hidden"></p>
+        <p class="text-sm text-gray-600 mt-4 text-center">
+            Déjà un compte ? <a href="/auth/login" class="text-amber-600 hover:text-amber-700 font-medium hover:underline transition-colors duration-200">Se connecter</a>
+        </p>
+    </form>
+</div>
+
+<script>
+    document.getElementById("register-btn").addEventListener("click", async () => {
+        const email = document.getElementById("email").value;
+        const name = document.getElementById("name").value;
+        const password = document.getElementById("password").value;
+        const errorMessage = document.getElementById("error-message");
+
+        try {
+            const response = await fetch("/auth/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, name, password, role: "viewer" })
+            });
+            const data = await response.json();
+            if (response.status === 201) {
+                window.location.href = "/auth/login";
+            } else {
+                errorMessage.textContent = data.message || "Erreur d'inscription";
+                errorMessage.classList.remove("hidden");
+            }
+        } catch (error) {
+            errorMessage.textContent = "Erreur : " + error.message;
+            errorMessage.classList.remove("hidden");
+            console.error(error);
+        }
+    });
+</script>
+{% endblock %}

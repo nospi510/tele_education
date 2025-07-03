@@ -5,3 +5,4 @@ from .comment import Comment
 from .quiz import Quiz
 from .quiz_response import QuizResponse
 from .resource import Resource
+
